@@ -19,6 +19,29 @@
         border: 1px solid #444;
         max-width: 90vw;
         max-height: 70vh;
+        transition: border-color 0.2s;
+    }
+    canvas.drag-over {
+        border-color: #0af;
+        border-width: 2px;
+    }
+    .canvas-container {
+        position: relative;
+        display: inline-block;
+    }
+    .drop-hint {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #888;
+        font-size: 18px;
+        pointer-events: none;
+        text-align: center;
+        transition: opacity 0.3s;
+    }
+    .drop-hint.hidden {
+        opacity: 0;
     }
     .panel {
         display: flex;
@@ -49,7 +72,10 @@
     <button id="downloadBtn">Download PNG</button>
 </div>
 
-<canvas id="glcanvas" width="1024" height="512"></canvas>
+<div class="canvas-container">
+    <canvas id="glcanvas" width="1024" height="512"></canvas>
+    <div class="drop-hint" id="dropHint">Drag & drop an image here<br><span style="font-size: 14px; color: #666;">or use the file button above</span></div>
+</div>
 
 <script>
 // ------------------ WebGL Setup ------------------
@@ -193,10 +219,28 @@ function loadImage(img) {
         img
     );
 
+    // Hide the drop hint once an image is loaded
+    document.getElementById("dropHint").classList.add("hidden");
+
     render();
 }
 
+function loadImageFromFile(file) {
+    if (!file || !file.type.startsWith('image/')) {
+        return;
+    }
+
+    // Store the original filename
+    currentFileName = file.name;
+
+    const img = new Image();
+    img.onload = () => loadImage(img);
+    img.src = URL.createObjectURL(file);
+}
+
 // ------------------ UI Events ------------------
+
+let currentFileName = null;
 
 const slider = document.getElementById("curvature");
 const number = document.getElementById("curvNumber");
@@ -213,15 +257,56 @@ number.addEventListener("input", () => syncCurvature(number.value));
 document.getElementById("fileInput").addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    loadImageFromFile(file);
+});
 
-    const img = new Image();
-    img.onload = () => loadImage(img);
-    img.src = URL.createObjectURL(file);
+// Drag and drop handlers
+canvas.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    canvas.classList.add("drag-over");
+});
+
+canvas.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    canvas.classList.add("drag-over");
+});
+
+canvas.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    canvas.classList.remove("drag-over");
+});
+
+canvas.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    canvas.classList.remove("drag-over");
+
+    const file = e.dataTransfer.files[0];
+    if (file) {
+        loadImageFromFile(file);
+    }
 });
 
 document.getElementById("downloadBtn").addEventListener("click", () => {
+    let downloadName = "distorted.png";
+    
+    if (currentFileName) {
+        // Add "_distorted" suffix before the file extension
+        const lastDot = currentFileName.lastIndexOf('.');
+        if (lastDot !== -1) {
+            const nameWithoutExt = currentFileName.substring(0, lastDot);
+            const ext = currentFileName.substring(lastDot);
+            downloadName = nameWithoutExt + "_distorted" + ext;
+        } else {
+            downloadName = currentFileName + "_distorted.png";
+        }
+    }
+    
     const link = document.createElement("a");
-    link.download = "distorted.png";
+    link.download = downloadName;
     link.href = canvas.toDataURL("image/png");
     link.click();
 });
