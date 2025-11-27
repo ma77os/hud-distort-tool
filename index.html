@@ -12,8 +12,15 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 12px;
-        padding: 20px;
+        gap: 20px;
+        padding: 24px;
+    }
+    h1 {
+        margin: 0 0 8px 0;
+        font-size: 24px;
+        font-weight: 600;
+        color: #ddd;
+        letter-spacing: 0.5px;
     }
     canvas { 
         border: 1px solid #444;
@@ -28,6 +35,7 @@
     .canvas-container {
         position: relative;
         display: inline-block;
+        cursor: pointer;
     }
     .drop-hint {
         position: absolute;
@@ -45,47 +53,89 @@
     }
     .panel {
         display: flex;
-        gap: 10px;
-        align-items: center;
+        flex-direction: column;
+        gap: 18px;
+        width: 100%;
+        max-width: 400px;
     }
-    #curvNumber {
+    .control-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+    .control-row.hidden,
+    #downloadBtn.hidden {
+        display: none;
+    }
+    label {
+        width: 90px;
+        flex-shrink: 0;
+    }
+    #curvNumber, #scaleNumber {
         width: 70px;
         background: #222;
         color: #eee;
         border: 1px solid #555;
-        padding: 2px 4px;
+        padding: 4px 6px;
+    }
+    input[type="range"] {
+        flex: 1;
+        min-width: 150px;
+    }
+    #downloadBtn {
+        background: #0af;
+        color: #fff;
+        border: none;
+        padding: 6px 12px;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+    #downloadBtn:hover {
+        background: #09e;
     }
 </style>
 </head>
 <body>
-
-<h2>Parabolic Distortion Tool</h2>
+    
+<h1>Parabolic Distortion Tool</h1>
 
 <div class="panel">
-    <input type="file" id="fileInput" accept="image/*">
+    <input type="file" id="fileInput" accept="image/*" style="display: none;">
 
-    <label>Curvature</label>
+    <div class="control-row hidden" id="curvatureRow">
+        <label>Curvature</label>
+        <input type="number" id="curvNumber" step="0.001" min="-0.5" max="0.5" value="-0.1">
+        <input type="range" id="curvature" min="-0.5" max="0.5" step="0.001" value="-0.1">
+    </div>
 
-    <input type="number" id="curvNumber" step="0.001" min="-0.5" max="0.5" value="-0.1">
-    <input type="range" id="curvature" min="-0.5" max="0.5" step="0.001" value="-0.1">
+    <div class="control-row hidden" id="scaleRow">
+        <label>Scale</label>
+        <input type="number" id="scaleNumber" step="0.01" min="0.5" max="1.5" value="1.0">
+        <input type="range" id="scale" min="0.5" max="1.5" step="0.01" value="1.0">
+    </div>
 
-    <button id="downloadBtn">Download PNG</button>
+    <button id="downloadBtn" class="hidden">Download PNG</button>
 </div>
 
 <div class="canvas-container">
     <canvas id="glcanvas" width="1024" height="512"></canvas>
-    <div class="drop-hint" id="dropHint">Drag & drop an image here<br><span style="font-size: 14px; color: #666;">or use the file button above</span></div>
+    <div class="drop-hint" id="dropHint">Drag & drop an image here<br><span style="font-size: 14px; color: #666;">or click to choose a file</span></div>
 </div>
 
 <script>
 // ------------------ WebGL Setup ------------------
 
 const canvas = document.getElementById("glcanvas");
-const gl = canvas.getContext("webgl2", { preserveDrawingBuffer: true });
+const gl = canvas.getContext("webgl2", { preserveDrawingBuffer: true, alpha: true });
 
 if (!gl) {
     alert("WebGL2 not supported.");
 }
+
+// Enable transparency
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+gl.clearColor(0.0, 0.0, 0.0, 0.0);
 
 // Vertex shader
 const vsSource = `#version 300 es
@@ -111,6 +161,7 @@ precision highp float;
 
 uniform sampler2D uTex;
 uniform float uCurvature;
+uniform float uScale;
 
 out vec4 outColor;
 
@@ -127,9 +178,20 @@ void main() {
     vec2 uv = gl_FragCoord.xy / texSize;
     uv.y = 1.0 - uv.y;
 
-    vec2 duv = parabolicDistort(uv, uCurvature);
+    // Apply scale around center (0.5, 0.5) FIRST - this zooms the source image
+    // Invert scale so higher values zoom in (larger image)
+    vec2 scaledUV = (uv - 0.5) / uScale + 0.5;
 
-    // proper vector clamp
+    // Then apply parabolic distortion to the scaled coordinates
+    vec2 duv = parabolicDistort(scaledUV, uCurvature);
+
+    // Check if UV is outside valid range - return transparent instead of sampling edge pixels
+    if (duv.x < 0.0 || duv.x > 1.0 || duv.y < 0.0 || duv.y > 1.0) {
+        outColor = vec4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
+
+    // Clamp to valid texture range to avoid edge stretching
     vec2 minUV = vec2(0.0, 0.0);
     vec2 maxUV = vec2(1.0) - vec2(1.0) / texSize;
     duv = clamp(duv, minUV, maxUV);
@@ -169,6 +231,7 @@ gl.useProgram(program);
 
 const uTexLoc = gl.getUniformLocation(program, "uTex");
 const uCurvLoc = gl.getUniformLocation(program, "uCurvature");
+const uScaleLoc = gl.getUniformLocation(program, "uScale");
 
 gl.uniform1i(uTexLoc, 0);
 
@@ -199,7 +262,13 @@ gl.texImage2D(
 
 function render() {
     const curv = parseFloat(document.getElementById("curvNumber").value);
+    const scale = parseFloat(document.getElementById("scaleNumber").value);
     gl.uniform1f(uCurvLoc, curv);
+    gl.uniform1f(uScaleLoc, scale);
+    
+    // Clear with transparent background
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
@@ -221,6 +290,11 @@ function loadImage(img) {
 
     // Hide the drop hint once an image is loaded
     document.getElementById("dropHint").classList.add("hidden");
+
+    // Show the controls once an image is loaded
+    document.getElementById("curvatureRow").classList.remove("hidden");
+    document.getElementById("scaleRow").classList.remove("hidden");
+    document.getElementById("downloadBtn").classList.remove("hidden");
 
     render();
 }
@@ -244,15 +318,47 @@ let currentFileName = null;
 
 const slider = document.getElementById("curvature");
 const number = document.getElementById("curvNumber");
+const scaleSlider = document.getElementById("scale");
+const scaleNumber = document.getElementById("scaleNumber");
+
+function saveToLocalStorage() {
+    localStorage.setItem('curvature', slider.value);
+    localStorage.setItem('scale', scaleSlider.value);
+}
+
+function loadFromLocalStorage() {
+    const savedCurvature = localStorage.getItem('curvature');
+    const savedScale = localStorage.getItem('scale');
+    
+    if (savedCurvature !== null) {
+        slider.value = savedCurvature;
+        number.value = savedCurvature;
+    }
+    
+    if (savedScale !== null) {
+        scaleSlider.value = savedScale;
+        scaleNumber.value = savedScale;
+    }
+}
 
 function syncCurvature(val) {
     slider.value = val;
     number.value = val;
+    saveToLocalStorage();
+    render();
+}
+
+function syncScale(val) {
+    scaleSlider.value = val;
+    scaleNumber.value = val;
+    saveToLocalStorage();
     render();
 }
 
 slider.addEventListener("input", () => syncCurvature(slider.value));
 number.addEventListener("input", () => syncCurvature(number.value));
+scaleSlider.addEventListener("input", () => syncScale(scaleSlider.value));
+scaleNumber.addEventListener("input", () => syncScale(scaleNumber.value));
 
 document.getElementById("fileInput").addEventListener("change", (e) => {
     const file = e.target.files[0];
@@ -290,6 +396,12 @@ canvas.addEventListener("drop", (e) => {
     }
 });
 
+// Click handler for canvas to open file picker
+const canvasContainer = document.querySelector(".canvas-container");
+canvasContainer.addEventListener("click", () => {
+    document.getElementById("fileInput").click();
+});
+
 document.getElementById("downloadBtn").addEventListener("click", () => {
     let downloadName = "distorted.png";
     
@@ -310,6 +422,9 @@ document.getElementById("downloadBtn").addEventListener("click", () => {
     link.href = canvas.toDataURL("image/png");
     link.click();
 });
+
+// Load saved values from localStorage
+loadFromLocalStorage();
 
 // initial render
 render();
