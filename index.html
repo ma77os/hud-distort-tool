@@ -173,7 +173,7 @@ vec2 parabolicDistort(vec2 uv, float curvature) {
 
     float y2 = uv.y + (x1 * y1 * curvature);
 
-    return clamp(vec2(uv.x, y2), 0.0, 1.0);
+    return vec2(uv.x, y2);
 }
 
 void main() {
@@ -188,6 +188,12 @@ void main() {
 
     // Then apply parabolic distortion to the scaled coordinates
     vec2 duv = parabolicDistort(scaledUV, uCurvature);
+
+    // Check if UV is outside valid range - return transparent instead of sampling edge pixels
+    if (duv.x < 0.0 || duv.x > 1.0 || duv.y < 0.0 || duv.y > 1.0) {
+        outColor = vec4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
     
     outColor = texture(uTex, duv);
 }
