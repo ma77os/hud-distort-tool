@@ -24,18 +24,48 @@
     }
     canvas { 
         border: 1px solid #444;
-        max-width: 90vw;
-        max-height: 70vh;
+        /*max-width: 90vw;*/
+        /*max-height: 70vh;*/
         transition: border-color 0.2s;
     }
     canvas.drag-over {
         border-color: #0af;
         border-width: 2px;
     }
-    .canvas-container {
+    .main-container {
+        margin-left: auto;
+        margin-right: auto;
+        margin-top: 3rem;
         position: relative;
+        width: 1280px;
+        height: 960px;
+    }
+    .background-container {
+        width: 100%;
+        height: 100%;
+        position: absolute;
+        top:0;
+        left:0;
+        z-index: 2;
+    }
+    .background{
+        width: 100%;
+        display: inline-block;
+    }
+    .canvas-container {
+        position: absolute;
+        top:0;
+        left:0;
         display: inline-block;
         cursor: pointer;
+        width: 100%;
+        height: 100%;
+        z-index: 10;
+    }
+    #glcanvas{
+        width: 100%;
+        height: 100%;
+        display: block;
     }
     .drop-hint {
         position: absolute;
@@ -117,20 +147,31 @@
     <button id="downloadBtn" class="hidden">Download PNG</button>
 </div>
 
-<div class="canvas-container">
-    <canvas id="glcanvas" width="1024" height="512"></canvas>
-    <div class="drop-hint" id="dropHint">Drag & drop an image here<br><span style="font-size: 14px; color: #666;">or click to choose a file</span></div>
+<div class="main-container">
+    <div class="background-container">
+        <img class="background" src="background.png"/>
+    </div>
+    <div class="canvas-container">
+        <canvas id="glcanvas"></canvas>
+        <div class="drop-hint" id="dropHint">Drag & drop an image here<br><span style="font-size: 14px; color: #666;">or click to choose a file</span></div>
+    </div>
 </div>
 
 <script>
 // ------------------ WebGL Setup ------------------
 
 const canvas = document.getElementById("glcanvas");
+canvas.width  = canvas.clientWidth;
+canvas.height = canvas.clientHeight;
 const gl = canvas.getContext("webgl2", { preserveDrawingBuffer: true, alpha: true });
+gl.viewport(0, 0, canvas.width, canvas.height);
 
 if (!gl) {
     alert("WebGL2 not supported.");
 }
+
+
+
 
 // Enable transparency
 gl.enable(gl.BLEND);
@@ -199,6 +240,16 @@ void main() {
 }
 
 `;
+
+
+// ----- background canvas (not curved) -----
+const backgroundCanvas = document.getElementById("background");
+const gl2 = canvas.getContext("webgl2", { preserveDrawingBuffer: true, alpha: true });
+
+
+
+
+
 
 // ------------------ Shader Compiler ------------------
 
